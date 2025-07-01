@@ -146,39 +146,38 @@ This project aims to incorporate or demonstrate the following architectural conc
 ## Project Structure
 
 ```
-ecommerce_platform/
-├── api_gateway/                # Nginx configuration and Dockerfile
-│   ├── Dockerfile
-│   └── nginx.conf
-├── frontend/                   # Basic HTML, CSS, JS for UI
-│   ├── app.js
-│   ├── index.html
-│   └── style.css
-├── kubernetes/                 # Kubernetes manifests
-│   ├── 00-namespace.yml
-│   ├── 01-configmap.yml
-│   ├── 02-secrets.yml
-│   ├── 10-postgres-statefulset.yml
-│   ├── 11-postgres-init-job.yml
-│   ├── 20-user-service.yml
-│   ├── ... (other service yamls)
-│   └── 30-api-gateway.yml
-├── services/                   # Individual microservices
-│   ├── user_service/
-│   │   ├── app/                # Python application code
-│   │   │   ├── main.py
-│   │   │   ├── models.py
-│   │   │   ├── crud.py
-│   │   │   ├── api.py
-│   │   │   └── db.py
-│   │   ├── Dockerfile
-│   │   └── requirements.txt
-│   ├── product_service/
-│   │   └── ... (similar structure)
-│   ├── ... (other services)
-├── AGENTS.md                   # Instructions for AI agents
+.
 ├── docker-compose.yml          # Docker Compose for local development
-└── README.md                   # This file
+├── README.md                   # This file
+└── ecommerce_platform/
+    ├── api_gateway/            # Nginx configuration and Dockerfile
+    │   ├── Dockerfile
+    │   └── nginx.conf
+    ├── frontend/               # Basic HTML, CSS, JS for UI
+    │   ├── app.js
+    │   ├── index.html
+    │   └── style.css
+    ├── kubernetes/             # Kubernetes manifests
+    │   ├── 00-namespace.yml
+    │   ├── ... (all k8s yamls)
+    │   └── README.md
+    └── services/               # Individual microservices
+        ├── user_service/
+        │   ├── app/            # Python application code
+        │   │   ├── main.py
+        │   │   ├── models.py
+        │   │   ├── crud.py
+        │   │   ├── api.py
+        │   │   └── db.py
+        │   ├── tests/          # Tests for the service
+        │   │   ├── __init__.py
+        │   │   ├── conftest.py
+        │   │   └── test_*.py
+        │   ├── Dockerfile
+        │   └── requirements.txt
+        ├── product_service/
+        │   └── ... (similar structure)
+        └── ... (other services)
 ```
 
 ## Setup and Running Locally (Docker Compose)
