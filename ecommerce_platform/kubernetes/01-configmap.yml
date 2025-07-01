@@ -1,0 +1,20 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ecommerce-config
+  namespace: ecommerce-ns
+data:
+  # Service URLs - these would be the K8s service DNS names
+  USER_SERVICE_BASE_URL: "http://user-service-svc:8000/api/v1"
+  PRODUCT_SERVICE_BASE_URL: "http://product-service-svc:8000/api/v1"
+  INVENTORY_SERVICE_BASE_URL: "http://inventory-service-svc:8000/api/v1"
+  ORDER_SERVICE_BASE_URL: "http://order-service-svc:8000/api/v1" # Order service itself, if it needs to know its own URL
+  PAYMENT_SERVICE_BASE_URL: "http://payment-service-svc:8000/api/v1"
+  NOTIFICATION_SERVICE_BASE_URL: "http://notification-service-svc:8000/api/v1"
+
+  # Mock service configurations
+  MOCK_PAYMENT_BEHAVIOR: "success" # or "failure"
+
+  # Other non-sensitive configurations
+  ENVIRONMENT: "development"
+  LOG_LEVEL: "INFO"

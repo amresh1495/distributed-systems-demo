@@ -1,0 +1,160 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres-svc # Stable network identifier for PostgreSQL
+  namespace: ecommerce-ns
+  labels:
+    app: postgres
+spec:
+  ports:
+    - port: 5432
+      name: postgres
+  clusterIP: None # Headless service for StatefulSet
+  selector:
+    app: postgres
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres-db
+  namespace: ecommerce-ns
+  labels:
+    app: postgres
+spec:
+  serviceName: "postgres-svc"
+  replicas: 1 # For simplicity, single replica. For HA, consider solutions like Patroni/Stolon.
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      terminationGracePeriodSeconds: 10
+      containers:
+        - name: postgres
+          image: postgres:14-alpine
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 5432
+              name: postgresdb
+          env:
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ecommerce-secrets
+                  key: POSTGRES_USER
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ecommerce-secrets
+                  key: POSTGRES_PASSWORD
+            - name: POSTGRES_DB # Default database, services will create their own
+              value: "ecommerce_main_db"
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          volumeMounts:
+            - name: postgres-storage
+              mountPath: /var/lib/postgresql/data
+          # Liveness and Readiness probes are important for production
+          livenessProbe:
+            exec:
+              command: ["pg_isready", "-U", "$(POSTGRES_USER)"]
+            initialDelaySeconds: 30
+            timeoutSeconds: 5
+            periodSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "$(POSTGRES_USER)"]
+            initialDelaySeconds: 5
+            timeoutSeconds: 3
+            periodSeconds: 5
+            failureThreshold: 3
+  volumeClaimTemplates:
+    - metadata:
+        name: postgres-storage
+      spec:
+        accessModes: ["ReadWriteOnce"] # Suitable for single node DB
+        resources:
+          requests:
+            storage: 5Gi # Adjust size as needed
+        # storageClassName: "standard" # Specify if not using default, e.g. "gp2" on AWS
+---
+# Note:
+# For a production PostgreSQL setup, you would need to consider:
+# - High Availability (e.g., using Patroni, Stolon, or a managed cloud PostgreSQL service)
+# - Backup and Restore strategy
+# - More robust storage class and configuration
+# - Connection pooling (e.g., PgBouncer)
+# This manifest provides a basic single-instance PostgreSQL suitable for development/testing in K8s.
+#
+# The individual application services (user_service, product_service, etc.) will need to
+# create their own databases (e.g., user_service_db, product_service_db) within this PostgreSQL instance.
+# This can be handled by application startup logic or migration scripts.
+# The DATABASE_URL environment variables in the ecommerce-secrets are configured to point to these
+# specific database names (e.g., .../user_service_db).
+# The PostgreSQL container is started with POSTGRES_DB=ecommerce_main_db, which ensures this DB is created.
+# The applications then connect and, if their specific DB doesn't exist, they might need logic to create it,
+# or you might run an init job to create all necessary databases after PostgreSQL is up.
+# For simplicity, we assume applications or their ORMs can handle DB creation if it doesn't exist,
+# or that an initial setup script would be run.
+# SQLModel's `create_db_and_tables` will create tables, but not the database itself.
+# The connection URL must specify an existing database for the initial connection.
+# One way to handle this is to connect to `ecommerce_main_db` initially, then execute `CREATE DATABASE user_service_db`, etc.
+# Or, ensure the user `ecommerce_user` has CREATEDB privileges.
+# The postgres image will create the database specified by POSTGRES_DB on init.
+# Subsequent connections to other DBs like `user_service_db` will work if that DB is created by an app or script.
+# A common pattern is an init script in each application pod or a K8s Job to ensure databases exist.
+# For now, we'll rely on the services to manage this or assume `ecommerce_user` can create databases.
+# The `psycopg2` driver usually requires the database to exist before connecting.
+# We might need to adjust the application startup logic to handle this.
+# For instance, connect to 'postgres' or 'ecommerce_main_db' first, create the target DB, then reconnect.
+#
+# An alternative simple approach for K8s:
+# In the postgres statefulset, add an init script or modify the command to create all required databases.
+# Example (conceptual - would need a custom entrypoint or init container for postgres):
+# `createdb -U $POSTGRES_USER user_service_db; createdb -U $POSTGRES_USER product_service_db; ...`
+# Or, grant CREATEDB to ecommerce_user: `ALTER USER ecommerce_user CREATEDB;` (run once manually or via init).
+# If `ecommerce_user` is the owner of `ecommerce_main_db` (which it is by default when POSTGRES_DB is set),
+# it can create tables in it, but not necessarily other databases unless it has CREATEDB privilege or
+# they are created by a superuser. The default `postgres` user in the image is a superuser.
+#
+# For now, the manifest assumes the databases specified in the connection strings will be created.
+# This usually means the application, upon connecting, will need to handle "database does not exist"
+# and potentially create it if it has permissions, or we ensure they are pre-created.
+# The simplest is to ensure `ecommerce_user` has `CREATEDB` permission.
+# Or, list all DBs in an env var and have an init script in postgres pod create them.
+# `POSTGRES_MULTIPLE_DATABASES: "user_service_db,product_service_db,inventory_service_db,order_service_db"`
+# and then parse this in a custom entrypoint.
+#
+# Given the current setup, the services will try to connect to, e.g., `user_service_db`.
+# If this DB doesn't exist, the connection will fail.
+# The `SQLModel.metadata.create_all(engine)` creates tables in the DB specified by the engine's URL.
+# It does not create the database itself.
+#
+# Simplest path for now: Assume `ecommerce_user` will be granted `CREATEDB` rights or the DBs are created manually/via a Job.
+# For the `docker-compose.yml`, PostgreSQL automatically creates the DB specified in `POSTGRES_DB`.
+# For K8s, the services will need their individual databases.
+# The current secret `USER_SERVICE_DATABASE_URL` points to `user_service_db`.
+# The postgres container will only create `ecommerce_main_db`.
+#
+# Solution: Modify app startup to create DB if not exists. This requires connecting to a default DB first.
+# (This will be handled in application code later)
+# OR, for K8s, a Job to create databases.
+# For now, let's assume the databases will be created by an external process/script after postgres is up.
+# Or, simpler: each service connects to `ecommerce_main_db` and uses schemas to separate tables. (Not ideal for microservices)
+#
+# Sticking with separate DBs: The `ecommerce-secrets` define full URLs including the target DB.
+# The PostgreSQL instance will be up. The applications will attempt to connect.
+# The `db.py` in each service will call `SQLModel.metadata.create_all(engine)`.
+# This will fail if the database itself (e.g., `user_service_db`) doesn't exist.
+#
+# We will need an init job or manual step to create these databases.
+# For example, a K8s Job that runs `psql` commands.
+# `CREATE DATABASE user_service_db OWNER ecommerce_user;`
+# `CREATE DATABASE product_service_db OWNER ecommerce_user;`
+# etc.
+# This Job would run after the PostgreSQL StatefulSet is ready.
+# Let's add this as a separate file `11-postgres-init-job.yml`

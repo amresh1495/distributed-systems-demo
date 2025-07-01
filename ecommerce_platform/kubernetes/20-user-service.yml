@@ -1,0 +1,91 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: user-service-deployment
+  namespace: ecommerce-ns
+  labels:
+    app: user-service
+spec:
+  replicas: 2 # Start with 2 replicas, adjust as needed
+  selector:
+    matchLabels:
+      app: user-service
+  template:
+    metadata:
+      labels:
+        app: user-service
+    spec:
+      containers:
+        - name: user-service
+          image: your-repo/user-service:latest # Replace with your actual image path
+          imagePullPolicy: IfNotPresent # Or Always if using :latest and frequently updating
+          ports:
+            - containerPort: 8000
+          env:
+            - name: USER_SERVICE_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: ecommerce-secrets
+                  key: USER_SERVICE_DATABASE_URL
+            - name: JWT_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: ecommerce-secrets
+                  key: JWT_SECRET_KEY
+            - name: JWT_ALGORITHM
+              valueFrom:
+                secretKeyRef:
+                  name: ecommerce-secrets
+                  key: JWT_ALGORITHM
+            - name: ENVIRONMENT
+              valueFrom:
+                configMapKeyRef:
+                  name: ecommerce-config
+                  key: ENVIRONMENT
+            - name: LOG_LEVEL
+              valueFrom:
+                configMapKeyRef:
+                  name: ecommerce-config
+                  key: LOG_LEVEL
+          # Readiness and Liveness Probes should be configured
+          # Example (adjust path and initial delays as needed):
+          readinessProbe:
+            httpGet:
+              path: / # Root path of the service, or a dedicated /healthz endpoint
+              port: 8000
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: / # Root path or /healthz
+              port: 8000
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources: # Optional: define resource requests and limits
+            requests:
+              memory: "128Mi"
+              cpu: "100m" # 0.1 CPU core
+            limits:
+              memory: "256Mi"
+              cpu: "500m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: user-service-svc # user-service-svc.ecommerce-ns.svc.cluster.local
+  namespace: ecommerce-ns
+  labels:
+    app: user-service
+spec:
+  type: ClusterIP # Internal service, not directly exposed externally
+  ports:
+    - port: 8000 # Port the service is available on within the cluster
+      targetPort: 8000 # Port the container is listening on
+      protocol: TCP
+      name: http
+  selector:
+    app: user-service # Selects pods with label app=user-service

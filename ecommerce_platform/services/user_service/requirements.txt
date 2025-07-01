@@ -1,0 +1,8 @@
+fastapi
+uvicorn[standard]
+sqlmodel
+psycopg2-binary # For PostgreSQL, even if starting with SQLite for dev
+passlib[bcrypt] # For password hashing
+python-jose[cryptography] # For JWT tokens
+email-validator # For email validation in Pydantic models
+# Add other dependencies as needed

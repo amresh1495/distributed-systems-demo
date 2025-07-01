@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>E-Commerce Platform</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <header>
+        <h1>Welcome to the E-Commerce Platform</h1>
+    </header>
+    <main>
+        <section id="products">
+            <h2>Products</h2>
+            <!-- Product listing will be dynamically populated here -->
+            <div class="product-list">
+                <p>Loading products...</p>
+            </div>
+        </section>
+        <section id="cart">
+            <h2>Shopping Cart</h2>
+            <div class="cart-items">
+                <!-- Cart items will be dynamically populated here -->
+                <p>Your cart is empty.</p>
+            </div>
+            <button id="checkout-btn" disabled>Checkout</button>
+        </section>
+        <section id="order-status">
+            <h2>Order Status</h2>
+            <p id="status-message">Place an order to see its status.</p>
+        </section>
+    </main>
+    <footer>
+        <p>&copy; 2023 Distributed E-Commerce System</p>
+    </footer>
+    <script src="app.js"></script>
+</body>
+</html>

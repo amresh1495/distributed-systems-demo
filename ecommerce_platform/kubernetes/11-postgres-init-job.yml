@@ -1,0 +1,140 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: postgres-db-init
+  namespace: ecommerce-ns
+  labels:
+    app: postgres-db-init
+spec:
+  template:
+    spec:
+      restartPolicy: OnFailure # Re-run if the script fails, up to backoffLimit
+      initContainers: # Wait for PostgreSQL to be ready
+        - name: wait-for-postgres
+          image: alpine/curl # Using curl to check PostgreSQL port
+          command: ['sh', '-c']
+          args:
+            - |
+              set -x;
+              apk add --no-cache postgresql-client; # Install psql for a more robust check if needed, or use nc/telnet
+              until pg_isready -h postgres-svc -p 5432 -U $(POSTGRES_USER); do
+                echo "Waiting for postgres at postgres-svc:5432...";
+                sleep 5;
+              done;
+              echo "PostgreSQL is ready.";
+          env:
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ecommerce-secrets
+                  key: POSTGRES_USER
+            # POSTGRES_PASSWORD is not strictly needed for pg_isready but good to have if using psql for more complex checks
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ecommerce-secrets
+                  key: POSTGRES_PASSWORD
+      containers:
+        - name: db-init-container
+          image: postgres:14-alpine # Use the same image as the DB for client tools
+          command: ['sh', '-c']
+          args:
+            - |
+              set -e; # Exit immediately if a command exits with a non-zero status.
+              set -x; # Print commands and their arguments as they are executed.
+
+              DB_USER=$(POSTGRES_USER)
+              DB_PASSWORD=$(POSTGRES_PASSWORD) # Not used in psql command directly here but good for context
+              DB_HOST="postgres-svc" # K8s service name for Postgres
+
+              DATABASES_TO_CREATE="user_service_db product_service_db inventory_service_db order_service_db payment_service_db" # payment_service_db might not be needed if fully mocked without DB
+
+              echo "Attempting to create databases: $DATABASES_TO_CREATE for user $DB_USER on host $DB_HOST"
+
+              # It's better to grant CREATEDB to the user, or run psql as the postgres superuser initially
+              # For this job, we'll assume the POSTGRES_USER provided in secrets is the superuser (like 'postgres')
+              # or has CREATEDB privileges. If not, this script would need modification.
+              # The default postgres user in the image is a superuser.
+              # If ecommerce_user is NOT a superuser, it needs CREATEDB.
+              # Let's assume for now POSTGRES_USER is 'postgres' or has sufficient rights.
+              # If POSTGRES_USER is 'ecommerce_user' and it's not a superuser, this job would fail
+              # unless 'ecommerce_user' was granted CREATEDB.
+              #
+              # A common pattern is to run this as the 'postgres' user (the default superuser in the image)
+              # and then grant ownership to the application user.
+
+              # Connect to the default 'postgres' database to run CREATE DATABASE commands.
+              export PGPASSWORD=$POSTGRES_PASSWORD; # psql uses PGPASSWORD
+
+              for db_name in $DATABASES_TO_CREATE; do
+                echo "Checking if database '$db_name' exists...";
+                if psql -h "$DB_HOST" -U "$DB_USER" -d postgres -tc "SELECT 1 FROM pg_database WHERE datname = '$db_name'" | grep -q 1; then
+                  echo "Database '$db_name' already exists.";
+                else
+                  echo "Creating database '$db_name'...";
+                  psql -h "$DB_HOST" -U "$DB_USER" -d postgres -c "CREATE DATABASE \"$db_name\";"
+                  # Optionally, grant privileges if DB_USER is not the intended owner ecommerce_user
+                  # For example, if DB_USER was 'postgres' (superuser) and you want 'ecommerce_user' to own them:
+                  # psql -h "$DB_HOST" -U "$DB_USER" -d postgres -c "GRANT ALL PRIVILEGES ON DATABASE \"$db_name\" TO ecommerce_user_role_if_different;"
+                  # For this script, we assume POSTGRES_USER from secrets is the one that will be used by apps,
+                  # so it should own the databases or have rights.
+                  # If POSTGRES_USER from secrets is 'ecommerce_user', then it needs CREATEDB role.
+                  # If we are running this Job as the 'postgres' superuser (by setting POSTGRES_USER in this job to 'postgres')
+                  # then we should explicitly set owner:
+                  # psql -h "$DB_HOST" -U "postgres" -d postgres -c "CREATE DATABASE \"$db_name\" OWNER ecommerce_user;"
+                  # For now, assume POSTGRES_USER in secrets is the user that needs to own these.
+                  echo "Database '$db_name' created.";
+                fi
+              done;
+              echo "Database initialization script completed.";
+          env:
+            # These should be the credentials of a user with rights to create databases.
+            # If POSTGRES_USER in ecommerce-secrets is the application user ('ecommerce_user'),
+            # it needs to have the CREATEDB privilege.
+            # Alternatively, run this job with superuser credentials (e.g. the default 'postgres' user)
+            # and then assign ownership if necessary.
+            # For simplicity, let's assume the POSTGRES_USER from secrets has CREATEDB.
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ecommerce-secrets
+                  key: POSTGRES_USER
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ecommerce-secrets
+                  key: POSTGRES_PASSWORD
+  backoffLimit: 4 # Number of retries before considering the job failed
+---
+# Notes on this Job:
+# 1. Privileges: The user defined by POSTGRES_USER/POSTGRES_PASSWORD in `ecommerce-secrets`
+#    needs to have the `CREATEDB` privilege in PostgreSQL. If this user is the default `postgres`
+#    superuser, it will work. If it's a dedicated `ecommerce_user`, you must grant this privilege beforehand
+#    (e.g., when the PostgreSQL instance is first provisioned, or by connecting as a superuser).
+#    Example: `ALTER USER ecommerce_user CREATEDB;`
+# 2. Idempotency: The script checks if a database exists before attempting to create it, making it safe to re-run.
+# 3. restartPolicy: `OnFailure` ensures the job retries if the script fails (e.g., PostgreSQL not yet fully ready).
+# 4. InitContainer: Waits for PostgreSQL service to be available before running the main script.
+#    `pg_isready` is a good tool for this.
+# 5. Database List: `DATABASES_TO_CREATE` should list all databases needed by your microservices.
+#    `payment_service_db` is included; remove if your payment service is purely mock and stateless.
+# 6. Application User vs Superuser:
+#    - If `ecommerce-secrets` POSTGRES_USER is `ecommerce_user` (the app user): It needs `CREATEDB`.
+#    - If `ecommerce-secrets` POSTGRES_USER is `postgres` (superuser): The script works. App will connect as `postgres`. (Not ideal)
+#    - Ideal: Job runs as superuser (e.g. 'postgres') to create DBs and sets `OWNER` to `ecommerce_user`.
+#      This means the job's env for POSTGRES_USER/PASSWORD would be the superuser, not necessarily the one from `ecommerce-secrets`
+#      if that one is for the less-privileged app user.
+#      For this example, we assume `ecommerce-secrets.POSTGRES_USER` is the application user and has been granted `CREATEDB`.
+#
+# To grant CREATEDB to 'ecommerce_user' (run once manually via psql connected as superuser):
+# `psql -U postgres -c "ALTER USER ecommerce_user CREATEDB;"` (assuming default postgres superuser)
+# This job should be applied to the cluster *after* the PostgreSQL StatefulSet is up and running,
+# or its initContainer will wait.
+#
+# The job will run once and complete. If you add new services needing new databases,
+# you'd either re-run a similar job or add the DB creation to your migration scripts.
+#
+# This init job approach is one common way to handle schema/DB setup in K8s.
+# Another is to build this logic into application startup (connect to default DB, create app DB, reconnect),
+# or use more advanced database migration tools that can also create databases.
+# For this project, the K8s Job is a clean separation of concerns.

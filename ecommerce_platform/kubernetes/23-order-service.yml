@@ -1,0 +1,104 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: order-service-deployment
+  namespace: ecommerce-ns
+  labels:
+    app: order-service
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: order-service
+  template:
+    metadata:
+      labels:
+        app: order-service
+    spec:
+      containers:
+        - name: order-service
+          image: your-repo/order-service:latest # Replace with your actual image path
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8000
+          env:
+            - name: ORDER_SERVICE_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: ecommerce-secrets
+                  key: ORDER_SERVICE_DATABASE_URL
+            - name: USER_SERVICE_BASE_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: ecommerce-config
+                  key: USER_SERVICE_BASE_URL
+            - name: PRODUCT_SERVICE_BASE_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: ecommerce-config
+                  key: PRODUCT_SERVICE_BASE_URL
+            - name: INVENTORY_SERVICE_BASE_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: ecommerce-config
+                  key: INVENTORY_SERVICE_BASE_URL
+            - name: PAYMENT_SERVICE_BASE_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: ecommerce-config
+                  key: PAYMENT_SERVICE_BASE_URL
+            - name: NOTIFICATION_SERVICE_BASE_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: ecommerce-config
+                  key: NOTIFICATION_SERVICE_BASE_URL
+            - name: ENVIRONMENT
+              valueFrom:
+                configMapKeyRef:
+                  name: ecommerce-config
+                  key: ENVIRONMENT
+            - name: LOG_LEVEL
+              valueFrom:
+                configMapKeyRef:
+                  name: ecommerce-config
+                  key: LOG_LEVEL
+          readinessProbe:
+            httpGet:
+              path: / # Root path or /healthz
+              port: 8000
+            initialDelaySeconds: 20 # May take longer to start if it connects to many services
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 8000
+            initialDelaySeconds: 40
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            requests:
+              memory: "192Mi" # Slightly more memory due to more client connections
+              cpu: "150m"
+            limits:
+              memory: "384Mi"
+              cpu: "750m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: order-service-svc
+  namespace: ecommerce-ns
+  labels:
+    app: order-service
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8000
+      targetPort: 8000
+      protocol: TCP
+      name: http
+  selector:
+    app: order-service

@@ -1,0 +1,124 @@
+version: '3.8'
+
+services:
+  postgres_db:
+    image: postgres:14-alpine
+    container_name: postgres_db
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: ecommerce_user
+      POSTGRES_PASSWORD: ecommerce_password
+      POSTGRES_DB: ecommerce_main_db # A general DB, services can use their own
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ecommerce_user -d ecommerce_main_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  user_service:
+    build: ./services/user_service
+    container_name: user_service
+    ports:
+      - "8001:8000" # Host:Container
+    environment:
+      USER_SERVICE_DATABASE_URL: "postgresql://ecommerce_user:ecommerce_password@postgres_db:5432/user_service_db"
+      # JWT_SECRET_KEY: "your_super_secret_key_for_jwt" # Generate and use a real secret
+      # ALGORITHM: "HS256"
+    volumes:
+      - ./services/user_service/app:/app/app # For live reload during development
+    depends_on:
+      postgres_db:
+        condition: service_healthy
+    # command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload # if reload needed
+
+  product_service:
+    build: ./services/product_service
+    container_name: product_service
+    ports:
+      - "8002:8000"
+    environment:
+      PRODUCT_SERVICE_DATABASE_URL: "postgresql://ecommerce_user:ecommerce_password@postgres_db:5432/product_service_db"
+    volumes:
+      - ./services/product_service/app:/app/app
+    depends_on:
+      postgres_db:
+        condition: service_healthy
+
+  inventory_service:
+    build: ./services/inventory_service
+    container_name: inventory_service
+    ports:
+      - "8003:8000"
+    environment:
+      INVENTORY_SERVICE_DATABASE_URL: "postgresql://ecommerce_user:ecommerce_password@postgres_db:5432/inventory_service_db"
+    volumes:
+      - ./services/inventory_service/app:/app/app
+    depends_on:
+      postgres_db:
+        condition: service_healthy
+
+  order_service:
+    build: ./services/order_service
+    container_name: order_service
+    ports:
+      - "8004:8000"
+    environment:
+      ORDER_SERVICE_DATABASE_URL: "postgresql://ecommerce_user:ecommerce_password@postgres_db:5432/order_service_db"
+      USER_SERVICE_BASE_URL: "http://user_service:8000/api/v1"
+      PRODUCT_SERVICE_BASE_URL: "http://product_service:8000/api/v1"
+      INVENTORY_SERVICE_BASE_URL: "http://inventory_service:8000/api/v1"
+      PAYMENT_SERVICE_BASE_URL: "http://payment_service:8000/api/v1"
+      NOTIFICATION_SERVICE_BASE_URL: "http://notification_service:8000/api/v1"
+    volumes:
+      - ./services/order_service/app:/app/app
+    depends_on:
+      postgres_db:
+        condition: service_healthy
+      user_service:
+        condition: service_started # Or service_healthy if healthcheck is added
+      product_service:
+        condition: service_started
+      inventory_service:
+        condition: service_started
+
+  payment_service: # Mocked service
+    build: ./services/payment_service
+    container_name: payment_service
+    ports:
+      - "8005:8000"
+    environment:
+      MOCK_PAYMENT_BEHAVIOR: "success" # or "failure" or "random"
+    volumes:
+      - ./services/payment_service/app:/app/app
+    # No DB dependency for the simple mocked version
+
+  notification_service: # Mocked service
+    build: ./services/notification_service
+    container_name: notification_service
+    ports:
+      - "8006:8000"
+    volumes:
+      - ./services/notification_service/app:/app/app
+    # No DB dependency for the simple mocked version
+
+  api_gateway:
+    build: ./api_gateway
+    container_name: api_gateway
+    ports:
+      - "80:80" # Main entry point for the application
+    depends_on:
+      - user_service
+      - product_service
+      - order_service
+      - inventory_service
+      - payment_service
+      - notification_service
+    volumes:
+      - ./api_gateway/nginx.conf:/etc/nginx/nginx.conf:ro # Mount config directly
+
+volumes:
+  postgres_data:
+    driver: local

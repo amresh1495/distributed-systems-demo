@@ -1,0 +1,5 @@
+fastapi
+uvicorn[standard]
+sqlmodel
+psycopg2-binary
+# Add other dependencies as needed

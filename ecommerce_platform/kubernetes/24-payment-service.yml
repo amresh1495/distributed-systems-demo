@@ -1,0 +1,83 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: payment-service-deployment
+  namespace: ecommerce-ns
+  labels:
+    app: payment-service
+spec:
+  replicas: 1 # Mock service, 1 replica might be enough
+  selector:
+    matchLabels:
+      app: payment-service
+  template:
+    metadata:
+      labels:
+        app: payment-service
+    spec:
+      containers:
+        - name: payment-service
+          image: your-repo/payment-service:latest # Replace with your actual image path
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8000
+          env:
+            - name: MOCK_PAYMENT_BEHAVIOR # From ConfigMap
+              valueFrom:
+                configMapKeyRef:
+                  name: ecommerce-config
+                  key: MOCK_PAYMENT_BEHAVIOR
+            # PAYMENT_SERVICE_DATABASE_URL is not used here as it's a simple mock
+            # If it had a DB, it would be included from ecommerce-secrets
+            # Example:
+            # - name: PAYMENT_SERVICE_DATABASE_URL
+            #   valueFrom:
+            #     secretKeyRef:
+            #       name: ecommerce-secrets
+            #       key: PAYMENT_SERVICE_DATABASE_URL # Ensure this key exists in secrets if used
+            - name: ENVIRONMENT
+              valueFrom:
+                configMapKeyRef:
+                  name: ecommerce-config
+                  key: ENVIRONMENT
+            - name: LOG_LEVEL
+              valueFrom:
+                configMapKeyRef:
+                  name: ecommerce-config
+                  key: LOG_LEVEL
+          readinessProbe:
+            httpGet:
+              path: / # Root path or /healthz
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 8000
+            initialDelaySeconds: 20
+            periodSeconds: 20
+          resources:
+            requests:
+              memory: "64Mi" # Mock service, likely small footprint
+              cpu: "50m"
+            limits:
+              memory: "128Mi"
+              cpu: "250m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: payment-service-svc
+  namespace: ecommerce-ns
+  labels:
+    app: payment-service
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8000
+      targetPort: 8000
+      protocol: TCP
+      name: http
+  selector:
+    app: payment-service

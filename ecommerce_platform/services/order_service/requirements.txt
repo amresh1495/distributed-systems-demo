@@ -1,0 +1,6 @@
+fastapi
+uvicorn[standard]
+sqlmodel
+psycopg2-binary
+httpx # For making requests to other services
+# Add other dependencies as needed
