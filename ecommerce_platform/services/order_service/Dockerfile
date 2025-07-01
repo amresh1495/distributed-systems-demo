@@ -4,8 +4,9 @@ FROM python:3.9-slim
 # Set the working directory in the container
 WORKDIR /app
 
-# Copy the requirements file first to leverage Docker cache
-COPY ./requirements.txt /app/requirements.txt
+# Copy the common requirements file first to leverage Docker cache
+# Path is relative to the build context (services/order_service/)
+COPY ../../requirements.txt /app/requirements.txt
 
 # Install dependencies
 RUN pip install --no-cache-dir -r requirements.txt
